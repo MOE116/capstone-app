@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-config
+  namespace: microservices
+data:
+  APP_MESSAGE: "Hello World from ConfigMap 🚀"
