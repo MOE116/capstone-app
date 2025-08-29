@@ -4,7 +4,7 @@ metadata:
   name: hello-world-deployment
   namespace: microservices
 spec:
-  replicas: 2
+  replicas: 2   #fixed at 2 replicas
   selector:
     matchLabels:
       app: hello-world
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: hello-world-container
-          image: ekdayodemo/hello-world-app_repo:1.0
+          image: ekdayodemo/hello-world-app:latest   #use latest for CI/CD
           ports:
             - containerPort: 8080
           env:

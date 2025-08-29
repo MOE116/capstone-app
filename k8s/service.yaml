@@ -4,9 +4,10 @@ metadata:
   name: hello-world-service
   namespace: microservices
 spec:
+  type: LoadBalancer   #  AWS ELB will be provisioned
   selector:
     app: hello-world
   ports:
-    - port: 8080
-      targetPort: 8080
-  type: ClusterIP
+    - protocol: TCP
+      port: 80          # external port
+      targetPort: 8080  # container port

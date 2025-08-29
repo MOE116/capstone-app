@@ -4,7 +4,7 @@ pipeline {
     environment {
         REGISTRY     = "ekdayodemo"
         APP_NAME     = "hello-world-app"
-        IMAGE_TAG    = "${BUILD_NUMBER}" // or use GIT_COMMIT for SHA
+        IMAGE_TAG    = "${BUILD_NUMBER}" // unique build number
         DOCKER_CRED  = "dockerhub-cred"  // Jenkins credential ID for DockerHub
         AWS_REGION   = "us-east-1"
         CLUSTER_NAME = "devops-cluster"
@@ -33,20 +33,23 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Docker Images') {
             steps {
                 script {
-                    docker.build("${REGISTRY}/${APP_NAME}:${IMAGE_TAG}", "-f docker/Dockerfile .")
+                    sh """
+                      docker build -t ${REGISTRY}/${APP_NAME}:${IMAGE_TAG} -t ${REGISTRY}/${APP_NAME}:latest -f docker/Dockerfile .
+                    """
                 }
             }
         }
 
-        stage('Push Docker Image') {
+        stage('Push Docker Images') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh """
                         echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
                         docker push ${REGISTRY}/${APP_NAME}:${IMAGE_TAG}
+                        docker push ${REGISTRY}/${APP_NAME}:latest
                         docker logout
                     """
                 }
@@ -68,9 +71,9 @@ pipeline {
                   kubectl apply -f ${K8S_DIR}/service.yaml
                   kubectl apply -f ${K8S_DIR}/resourcequota.yaml || true
 
-                  echo '🚀 Updating Deployment with new image...'
+                  echo '🚀 Forcing Deployment to use :latest image...'
                   kubectl set image deployment/hello-world-deployment \
-                    hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
+                    hello-world-container=${REGISTRY}/${APP_NAME}:latest \
                     -n microservices
 
                   echo '🔍 Verifying rollout...'
