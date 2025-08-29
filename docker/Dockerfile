@@ -5,12 +5,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files and install only production deps
-COPY ../app/package.json ../app/package-lock.json* ./
+# Copy package files from the app folder
+COPY app/package*.json ./
+
+# Install only production dependencies
 RUN npm install --production
 
-# Copy source code
-COPY ../app/server.js .
+# Copy the application source
+COPY app/ ./
 
 # =========================
 # Stage 2: Runtime (minimal, secure, non-root)
@@ -22,14 +24,14 @@ WORKDIR /app
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy from builder stage
+# Copy built app from builder
 COPY --from=builder /app /app
 
-# Switch to non-root
+# Use non-root user
 USER appuser
 
-# Expose port
+# Expose app port
 EXPOSE 8080
 
-# Run app
+# Run the app
 CMD ["node", "server.js"]
