@@ -8,6 +8,7 @@ pipeline {
         DOCKER_CRED  = "dockerhub-cred"  // Jenkins credential ID for DockerHub
         AWS_REGION   = "us-east-1"
         CLUSTER_NAME = "devops-cluster"
+        K8S_DIR      = "k8s"
     }
 
     stages {
@@ -25,9 +26,9 @@ pipeline {
                 }
             }
             steps {
-                dir('app') {   // 👈 go into app directory
+                dir('app') {
                     sh 'npm install'
-                    sh 'npm test || true'  // allow pipeline to continue if no tests
+                    sh 'npm test || true'  // allow skipping if no tests yet
                 }
             }
         }
@@ -43,33 +44,38 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh '''
+                    sh """
                         echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
                         docker push ${REGISTRY}/${APP_NAME}:${IMAGE_TAG}
-                    '''
+                        docker logout
+                    """
                 }
             }
         }
 
         stage('Deploy to EKS') {
             steps {
-                sh '''
-                  set -e  # stop immediately on error
-                  
-                  echo "⏳ Updating kubeconfig for EKS cluster..."
+                sh """
+                  set -e
+                  echo '⏳ Updating kubeconfig for EKS cluster...'
                   aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                  echo "🚀 Deploying new image to EKS..."
+                  echo '📦 Applying Kubernetes manifests...'
+                  kubectl apply -f ${K8S_DIR}/namespace.yaml
+                  kubectl apply -f ${K8S_DIR}/configmap.yaml
+                  kubectl apply -f ${K8S_DIR}/secret.yaml
+                  kubectl apply -f ${K8S_DIR}/deployment.yaml
+                  kubectl apply -f ${K8S_DIR}/service.yaml
+                  kubectl apply -f ${K8S_DIR}/resourcequota.yaml || true
+
+                  echo '🚀 Updating Deployment with new image...'
                   kubectl set image deployment/hello-world-deployment \
                     hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
                     -n microservices
 
-                  echo "🔍 Verifying rollout..."
+                  echo '🔍 Verifying rollout...'
                   kubectl rollout status deployment/hello-world-deployment -n microservices
-
-                  echo "📦 Current pods:"
-                  kubectl get pods -n microservices
-                '''
+                """
             }
         }
     }
