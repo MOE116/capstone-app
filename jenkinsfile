@@ -2,11 +2,11 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = "ekdayodemo"
-        APP_NAME = "hello-world-app"
-        IMAGE_TAG = "${BUILD_NUMBER}" // or use GIT_COMMIT.take(7)
-        DOCKER_CRED = "dockerhub-cred" 
-        AWS_REGION = "us-east-1"
+        REGISTRY     = "ekdayodemo"
+        APP_NAME     = "hello-world-app"
+        IMAGE_TAG    = "${BUILD_NUMBER}" // or use GIT_COMMIT for SHA
+        DOCKER_CRED  = "dockerhub-cred"  // Jenkins credential ID for DockerHub
+        AWS_REGION   = "us-east-1"
         CLUSTER_NAME = "devops-cluster"
     }
 
@@ -25,8 +25,10 @@ pipeline {
                 }
             }
             steps {
-                sh 'npm install'
-                sh 'npm test || true'  // skip failure if no tests yet
+                dir('app') {   // 👈 go into app directory
+                    sh 'npm install'
+                    sh 'npm test || true'  // allow pipeline to continue if no tests
+                }
             }
         }
 
@@ -41,31 +43,33 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
+                    sh '''
                         echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
                         docker push ${REGISTRY}/${APP_NAME}:${IMAGE_TAG}
-                    """
+                    '''
                 }
             }
         }
 
         stage('Deploy to EKS') {
             steps {
-                sh """
-                  # Update kubeconfig for Jenkins EC2 IAM role
+                sh '''
+                  set -e  # stop immediately on error
+                  
+                  echo "⏳ Updating kubeconfig for EKS cluster..."
                   aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                  # Ensure manifests are applied
-                  kubectl apply -f k8s/ -n microservices
-
-                  # Update image in the deployment
+                  echo "🚀 Deploying new image to EKS..."
                   kubectl set image deployment/hello-world-deployment \
                     hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
                     -n microservices
 
-                  # Wait for rollout
+                  echo "🔍 Verifying rollout..."
                   kubectl rollout status deployment/hello-world-deployment -n microservices
-                """
+
+                  echo "📦 Current pods:"
+                  kubectl get pods -n microservices
+                '''
             }
         }
     }
@@ -75,8 +79,7 @@ pipeline {
             echo "✅ Deployment successful! Version: ${IMAGE_TAG}"
         }
         failure {
-            echo "❌ Pipeline failed. Check Jenkins logs."
-            sh "kubectl rollout undo deployment/hello-world-deployment -n microservices || true"
+            echo "❌ Pipeline failed. Check Jenkins logs for details."
         }
     }
 }
