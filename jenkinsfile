@@ -4,8 +4,8 @@ pipeline {
     environment {
         REGISTRY = "ekdayodemo"
         APP_NAME = "hello-world-app"
-        IMAGE_TAG = "${BUILD_NUMBER}" // you could switch to GIT_COMMIT.take(7) for traceability
-        DOCKER_CRED = "dockerhub-cred" // Jenkins credential ID for DockerHub
+        IMAGE_TAG = "${BUILD_NUMBER}" // or use GIT_COMMIT.take(7)
+        DOCKER_CRED = "dockerhub-cred" 
         AWS_REGION = "us-east-1"
         CLUSTER_NAME = "devops-cluster"
     }
@@ -18,9 +18,15 @@ pipeline {
         }
 
         stage('Test') {
+            agent {
+                docker {
+                    image 'node:18-alpine'   // lightweight Node.js test environment
+                    args '-u root:root'     // run as root so npm can install packages
+                }
+            }
             steps {
                 sh 'npm install'
-                sh 'npm test || true' // ignore if no tests yet
+                sh 'npm test || true'  // skip failure if no tests yet
             }
         }
 
@@ -49,15 +55,15 @@ pipeline {
                   # Update kubeconfig for Jenkins EC2 IAM role
                   aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                  # Apply manifests to ensure namespace/configmap/secret/service/deployment exist
+                  # Ensure manifests are applied
                   kubectl apply -f k8s/ -n microservices
 
-                  # Update the deployment image with the new tag
+                  # Update image in the deployment
                   kubectl set image deployment/hello-world-deployment \
                     hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
                     -n microservices
 
-                  # Wait for rollout success or fail
+                  # Wait for rollout
                   kubectl rollout status deployment/hello-world-deployment -n microservices
                 """
             }
