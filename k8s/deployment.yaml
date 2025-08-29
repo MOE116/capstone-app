@@ -4,7 +4,7 @@ metadata:
   name: hello-world-deployment
   namespace: microservices
 spec:
-  replicas: 2   #fixed at 2 replicas
+  replicas: 1   #fixed at 1 replica
   selector:
     matchLabels:
       app: hello-world
