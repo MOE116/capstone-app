@@ -16,6 +16,7 @@ spec:
       containers:
         - name: hello-world-container
           image: ekdayodemo/hello-world-app:latest   #use latest for CI/CD
+          imagePullPolicy: Always   # Force pull latest image every rollout
           ports:
             - containerPort: 8080
           env:
