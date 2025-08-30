@@ -99,33 +99,25 @@ resource "aws_security_group" "devops_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "devops-sg"
-  }
+  tags = { Name = "devops-sg" }
 }
 
-#----------------------------
+# -----------------------------
 # IAM roles for Jenkins EC2
-#---------------------------
-# IAM Role for Jenkins EC2
+# -----------------------------
 resource "aws_iam_role" "jenkins_role" {
   name = "jenkins-eks-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
   })
 }
 
-# Attach policies to allow Jenkins EC2 to interact with EKS
 resource "aws_iam_role_policy_attachment" "jenkins_EKSClusterPolicy" {
   role       = aws_iam_role.jenkins_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
@@ -146,7 +138,6 @@ resource "aws_iam_instance_profile" "jenkins_profile" {
   role = aws_iam_role.jenkins_role.name
 }
 
-
 # -----------------------------
 # Jenkins EC2
 # -----------------------------
@@ -162,45 +153,32 @@ resource "aws_instance" "jenkins" {
   user_data = <<-EOF
               #!/bin/bash
               set -e
-
-              # Update and install basics
               apt-get update -y
               apt-get install -y openjdk-17-jdk curl gnupg2 unzip apt-transport-https ca-certificates lsb-release software-properties-common docker.io
-
-              # Enable Docker
               systemctl enable docker
               systemctl start docker
               usermod -aG docker ubuntu
 
-              # Install AWS CLI v2
+              # AWS CLI v2
               curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -o awscliv2.zip
               ./aws/install
 
-              # Install kubectl
+              # kubectl
               curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
               install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-              # Add Jenkins GPG key (fixed for Ubuntu 24.04)
+              # Jenkins
               curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | gpg --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg
-
-              # Add Jenkins repo
               echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
-
-              # Install Jenkins
               apt-get update -y
               apt-get install -y jenkins
-
-              # Enable Jenkins service
               systemctl enable jenkins
               systemctl start jenkins
               EOF
 
-  tags = {
-    Name = "jenkins-host"
-  }
+  tags = { Name = "jenkins-host" }
 }
-
 
 # -----------------------------
 # IAM Roles for EKS
@@ -216,7 +194,7 @@ data "aws_iam_policy_document" "eks_assume" {
     principals { 
       type = "Service" 
       identifiers = ["eks.amazonaws.com"] 
-     }
+      }
   }
 }
 
@@ -236,7 +214,7 @@ data "aws_iam_policy_document" "eks_nodes_assume" {
     principals { 
       type = "Service" 
       identifiers = ["ec2.amazonaws.com"] 
-      }
+    }
   }
 }
 
@@ -290,3 +268,29 @@ resource "aws_eks_node_group" "devops_nodes" {
   ]
 }
 
+# -----------------------------
+# aws-auth ConfigMap (Terraform-managed)
+# -----------------------------
+resource "kubernetes_config_map" "aws_auth" {
+  depends_on = [aws_eks_node_group.devops_nodes]
+
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
+  }
+
+  data = {
+    mapRoles = yamlencode([
+      {
+        rolearn  = aws_iam_role.eks_node_role.arn
+        username = "system:node:{{EC2PrivateDNSName}}"
+        groups   = ["system:bootstrappers", "system:nodes"]
+      },
+      {
+        rolearn  = aws_iam_role.jenkins_role.arn
+        username = "jenkins"
+        groups   = ["system:masters"]
+      }
+    ])
+  }
+}
