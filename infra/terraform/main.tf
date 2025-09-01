@@ -259,8 +259,14 @@ resource "aws_eks_node_group" "devops_nodes" {
     min_size     = 2
   }
 
-  instance_types = ["t2.micro"]
+  instance_types = ["t3.small"]
 
+  # ✅ Ensure rolling updates happen
+  update_config {
+    max_unavailable = 1   # only 1 node at a time can go down
+    # alternatively: max_unavailable_percentage = 50
+  }
+  
   depends_on = [
     aws_iam_role_policy_attachment.eks_node_AmazonEKSWorkerNodePolicy,
     aws_iam_role_policy_attachment.eks_node_AmazonEKS_CNI_Policy,

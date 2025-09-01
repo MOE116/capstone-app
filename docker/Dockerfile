@@ -8,8 +8,8 @@ WORKDIR /app
 # Copy package files from the app folder
 COPY app/package*.json ./
 
-# Install only production dependencies
-RUN npm install --production
+# Install dependencies (include prom-client)
+RUN npm install --production prom-client
 
 # Copy the application source
 COPY app/ ./
