@@ -9,7 +9,7 @@ client.collectDefaultMetrics({ register });
 
 // Default endpoint
 app.get("/", (req, res) => {
-  res.send("Hello World from ekdayo Sept 1 update Node.js App 🚀");
+  res.send("Hello World from ekdayo Sept  update Node.js App 🚀");
 });
 
 // Metrics endpoint for Prometheus
