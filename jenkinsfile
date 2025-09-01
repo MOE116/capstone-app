@@ -73,14 +73,10 @@ pipeline {
 
                   echo '🚀 Forcing Deployment to use :latest image...'
                   kubectl set image deployment/hello-world-deployment \
-                    hello-world-container=${REGISTRY}/${APP_NAME}:latest \
+                    hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
                     -n microservices
 
-                  echo '⚙️ Forcing imagePullPolicy=Always...'
-                  kubectl patch deployment hello-world-deployment \
-                    -n microservices \
-                    --type='json' \
-                    -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "Always"}]'
+
 
                   echo '🔍 Verifying rollout...'
                   kubectl rollout status deployment/hello-world-deployment -n microservices
