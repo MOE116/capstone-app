@@ -142,6 +142,11 @@ resource "aws_iam_role_policy_attachment" "jenkins_EC2ContainerRegistryReadOnly"
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy_attachment" "jenkins_AdminAccess" {
+  role       = aws_iam_role.jenkins_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
 resource "aws_iam_instance_profile" "jenkins_profile" {
   name = "jenkins-eks-profile"
   role = aws_iam_role.jenkins_role.name
@@ -252,10 +257,7 @@ EOF
   tags = { Name = "jenkins-host" }
 }
 
-resource "aws_iam_role_policy_attachment" "jenkins_AdminAccess" {
-  role       = aws_iam_role.jenkins_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
+
 
 # -----------------------------
 # IAM Roles for EKS
