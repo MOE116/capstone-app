@@ -222,7 +222,7 @@ resource "aws_instance" "jenkins" {
               systemctl enable docker
               systemctl start docker
               usermod -aG docker ubuntu
-
+             
               echo "=== Installing AWS CLI v2 ==="
               curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -o awscliv2.zip
@@ -236,7 +236,13 @@ resource "aws_instance" "jenkins" {
               curl -fsSL https://releases.hashicorp.com/terraform/1.9.5/terraform_1.9.5_linux_amd64.zip -o terraform.zip
               unzip -o terraform.zip
               mv terraform /usr/local/bin/
-              chmod +x /usr/local/bin/terraform             
+              chmod +x /usr/local/bin/terraform
+
+              echo "=== Installing Ansible ==="
+              apt-get update -y
+              apt-get install -y ansible
+
+
 
               echo "=== Installing Jenkins ==="
               curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee \
@@ -250,6 +256,10 @@ resource "aws_instance" "jenkins" {
 
               systemctl enable jenkins
               systemctl start jenkins
+
+              usermod -aG docker jenkins || true
+              systemctl restart jenkins
+
 
               echo "=== Setup complete! ==="
 EOF

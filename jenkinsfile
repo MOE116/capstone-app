@@ -28,10 +28,10 @@ pipeline {
         stage('Configure with Ansible') {
             steps {
                 sh """
-                  ansible-playbook -i ${ANSIBLE_DIR}/inventory \
+                  ansible-playbook -i ${ANSIBLE_DIR}/inventory.ini \
                     ${ANSIBLE_DIR}/playbooks/install_k8s_tools.yml
 
-                  ansible-playbook -i ${ANSIBLE_DIR}/inventory \
+                  ansible-playbook -i ${ANSIBLE_DIR}/inventory.ini \
                     ${ANSIBLE_DIR}/playbooks/configure_monitoring.yml
                 """
             }
