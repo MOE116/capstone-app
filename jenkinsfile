@@ -2,68 +2,63 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY     = "ekdayodemo"
-        APP_NAME     = "hello-world-app"
-        IMAGE_TAG    = "${BUILD_NUMBER}" // unique build number
-        DOCKER_CRED  = "dockerhub-cred"  // Jenkins credential ID for DockerHub
-        AWS_REGION   = "us-east-1"
-        CLUSTER_NAME = "devops-cluster"
-        K8S_DIR      = "k8s"
+        REGISTRY       = "ekdayodemo"
+        APP_NAME       = "hello-world-app"
+        IMAGE_TAG      = "${BUILD_NUMBER}"
+        DOCKER_CRED    = "dockerhub-cred"
+        AWS_REGION     = "us-east-1"
+        CLUSTER_NAME   = "devops-cluster"
+        TERRAFORM_DIR  = "infra/terraform"
+        ANSIBLE_DIR    = "ansible"
+        K8S_DIR        = "k8s"
+        MONITORING_DIR = "monitoring"
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/MOE116/capstone-app.git'
-            }
-        }
-
-        stage('Test') {
-            agent {
-                docker {
-                    image 'node:18-alpine'   // lightweight Node.js test environment
-                    args '-u root:root'     // run as root so npm can install packages
-                }
-            }
-            steps {
-                dir('app') {
-                    sh 'npm install'
-                    sh 'npm test || true'  // allow skipping if no tests yet
-                }
-            }
-        }
-
-        stage('Build Docker Images') {
-            steps {
-                script {
-                    sh """
-                      docker build -t ${REGISTRY}/${APP_NAME}:${IMAGE_TAG} -t ${REGISTRY}/${APP_NAME}:latest -f docker/Dockerfile .
-                    """
-                }
-            }
-        }
-
-        stage('Push Docker Images') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        docker push ${REGISTRY}/${APP_NAME}:${IMAGE_TAG}
-                        docker push ${REGISTRY}/${APP_NAME}:latest
-                        docker logout
-                    """
-                }
-            }
-        }
-
-        stage('Deploy to EKS') {
+        stage('Terraform Init & Apply') {
             steps {
                 sh """
-                  set -e
-                  echo '⏳ Updating kubeconfig for EKS cluster...'
+                  cd ${TERRAFORM_DIR}
+                  terraform init -input=false
+                  terraform apply -auto-approve
+                """
+            }
+        }
+
+        stage('Configure with Ansible') {
+            steps {
+                sh """
+                  ansible-playbook -i ${ANSIBLE_DIR}/inventory \
+                    ${ANSIBLE_DIR}/playbooks/install_k8s_tools.yml
+
+                  ansible-playbook -i ${ANSIBLE_DIR}/inventory \
+                    ${ANSIBLE_DIR}/playbooks/configure_monitoring.yml
+                """
+            }
+        }
+
+        stage('Build & Push Docker Image') {
+            steps {
+                script {
+                    docker.build("${REGISTRY}/${APP_NAME}:${IMAGE_TAG}", "-f docker/Dockerfile .")
+                }
+
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                      echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                      docker push ${REGISTRY}/${APP_NAME}:${IMAGE_TAG}
+                      docker push ${REGISTRY}/${APP_NAME}:latest
+                      docker logout
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                sh """
                   aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                  echo '📦 Applying Kubernetes manifests...'
                   kubectl apply -f ${K8S_DIR}/namespace.yaml
                   kubectl apply -f ${K8S_DIR}/configmap.yaml
                   kubectl apply -f ${K8S_DIR}/secret.yaml
@@ -71,15 +66,29 @@ pipeline {
                   kubectl apply -f ${K8S_DIR}/service.yaml
                   kubectl apply -f ${K8S_DIR}/resourcequota.yaml || true
 
-                  echo '🚀 Forcing Deployment to use :latest image...'
                   kubectl set image deployment/hello-world-deployment \
                     hello-world-container=${REGISTRY}/${APP_NAME}:${IMAGE_TAG} \
                     -n microservices
 
+                  kubectl patch deployment hello-world-deployment -n microservices \
+                    --type=json -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "Always"}]'
 
-
-                  echo '🔍 Verifying rollout...'
                   kubectl rollout status deployment/hello-world-deployment -n microservices
+                """
+            }
+        }
+
+        stage('Deploy Monitoring Stack') {
+            steps {
+                sh """
+                  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+                  helm repo update
+
+                  helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+                    -n monitoring --create-namespace \
+                    -f ${MONITORING_DIR}/values-monitoring.yaml
+
+                  kubectl apply -f ${MONITORING_DIR}/servicemonitor.yaml
                 """
             }
         }
@@ -87,10 +96,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment successful! Version: ${IMAGE_TAG}"
+            echo "✅ Task 6 pipeline completed successfully! Version: ${IMAGE_TAG}"
         }
         failure {
-            echo "❌ Pipeline failed. Check Jenkins logs for details."
+            echo "❌ Task 6 pipeline failed. Check Jenkins logs for details."
         }
     }
 }

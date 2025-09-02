@@ -6,7 +6,16 @@ terraform {
     }
   }
   required_version = ">= 1.4"
+
+  backend "s3" {
+    bucket         = "ekdcapstone-terraform-state"
+    key            = "eks/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
 }
+
 
 provider "aws" {
   region = var.region
@@ -138,12 +147,59 @@ resource "aws_iam_instance_profile" "jenkins_profile" {
   role = aws_iam_role.jenkins_role.name
 }
 
+# ==========================
+# IAM Policy for Terraform S3 + DynamoDB Backend
+# ==========================
+
+resource "aws_iam_policy" "terraform_backend_policy" {
+  name        = "TerraformBackendPolicy"
+  description = "Allow Terraform to use S3 and DynamoDB for state management"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::ekdcapstone-terraform-state",
+          "arn:aws:s3:::ekdcapstone-terraform-state/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DescribeTable"
+        ]
+        Resource = "arn:aws:dynamodb:us-east-1:${data.aws_caller_identity.current.account_id}:table/terraform-locks"
+      }
+    ]
+  })
+}
+
+# Attach the policy to the Jenkins EC2 role
+resource "aws_iam_role_policy_attachment" "jenkins_backend_attach" {
+  role       = aws_iam_role.jenkins_role.name
+  policy_arn = aws_iam_policy.terraform_backend_policy.arn
+}
+
+# Get current account id dynamically
+data "aws_caller_identity" "current" {}
 # -----------------------------
 # Jenkins EC2
 # -----------------------------
 resource "aws_instance" "jenkins" {
   ami           = var.ami_id
-  instance_type = "t2.micro"
+  instance_type = "t3.small"
   subnet_id     = aws_subnet.subnet_a.id
   key_name      = var.key_name
   vpc_security_group_ids = [aws_security_group.devops_sg.id]
@@ -152,30 +208,40 @@ resource "aws_instance" "jenkins" {
 
   user_data = <<-EOF
               #!/bin/bash
-              set -e
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+              echo "=== Updating system ==="
               apt-get update -y
               apt-get install -y openjdk-17-jdk curl gnupg2 unzip apt-transport-https ca-certificates lsb-release software-properties-common docker.io
+
               systemctl enable docker
               systemctl start docker
               usermod -aG docker ubuntu
 
-              # AWS CLI v2
-              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              echo "=== Installing AWS CLI v2 ==="
+              curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -o awscliv2.zip
-              ./aws/install
+              ./aws/install || true
 
-              # kubectl
+              echo "=== Installing kubectl ==="
               curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
               install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-              # Jenkins
-              curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | gpg --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg
-              echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian-stable binary/" > /etc/apt/sources.list.d/jenkins.list
+              echo "=== Installing Jenkins ==="
+              curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee \
+                /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+              echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
+                https://pkg.jenkins.io/debian-stable binary/ | tee \
+                /etc/apt/sources.list.d/jenkins.list > /dev/null
+
               apt-get update -y
               apt-get install -y jenkins
+
               systemctl enable jenkins
               systemctl start jenkins
-              EOF
+
+              echo "=== Setup complete! ==="
+EOF
 
   tags = { Name = "jenkins-host" }
 }

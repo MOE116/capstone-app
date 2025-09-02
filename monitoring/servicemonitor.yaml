@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hello-world-servicemonitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: hello-world   # must match your Service label
+  namespaceSelector:
+    matchNames:
+      - microservices
+  endpoints:
+    - port: http        # must match the named port in Service
+      path: /metrics
+      interval: 15s

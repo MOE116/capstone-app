@@ -1,0 +1,15 @@
+---
+- name: Configure monitoring stack on EKS
+  hosts: jenkins
+  become: true
+
+
+  tasks:
+    - name: Ensure monitoring namespace exists
+      shell: |
+        kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Apply Prometheus Operator CRDs
+      shell: |
+        kubectl apply --server-side -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.71.2/bundle.yaml
+
