@@ -323,6 +323,15 @@ resource "aws_eks_cluster" "devops_cluster" {
     subnet_ids = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
   }
 
+  # ✅ Enable new API-based access control while keeping legacy ConfigMap for compatibility
+  access_config {
+    authentication_mode = "API_AND_CONFIG_MAP"
+  }
+  # Don’t let Terraform destroy/recreate just for auth mode drift
+  lifecycle {
+    ignore_changes = [access_config]
+  }
+
   depends_on = [aws_iam_role_policy_attachment.eks_cluster_AmazonEKSClusterPolicy]
 }
 
@@ -354,28 +363,21 @@ resource "aws_eks_node_group" "devops_nodes" {
 }
 
 # -----------------------------
-# aws-auth ConfigMap (Terraform-managed)
+# EKS Access Entries
 # -----------------------------
-resource "kubernetes_config_map" "aws_auth" {
-  depends_on = [aws_eks_node_group.devops_nodes]
+resource "aws_eks_access_entry" "jenkins" {
+  cluster_name  = aws_eks_cluster.devops_cluster.name
+  principal_arn = aws_iam_role.jenkins_role.arn
+  type          = "STANDARD"
 
-  metadata {
-    name      = "aws-auth"
-    namespace = "kube-system"
-  }
+  # ✅ Removed kubernetes_groups (system:masters is invalid here)
+  user_name = "jenkins"
+}
 
-  data = {
-    mapRoles = yamlencode([
-      {
-        rolearn  = aws_iam_role.eks_node_role.arn
-        username = "system:node:{{EC2PrivateDNSName}}"
-        groups   = ["system:bootstrappers", "system:nodes"]
-      },
-      {
-        rolearn  = aws_iam_role.jenkins_role.arn
-        username = "jenkins"
-        groups   = ["system:masters"]
-      }
-    ])
-  }
+resource "aws_eks_access_policy_association" "jenkins_admin" {
+  cluster_name  = aws_eks_cluster.devops_cluster.name
+  principal_arn = aws_iam_role.jenkins_role.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope { type = "cluster" }
 }
