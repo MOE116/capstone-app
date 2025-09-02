@@ -226,6 +226,12 @@ resource "aws_instance" "jenkins" {
               echo "=== Installing kubectl ==="
               curl -LO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
               install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+             # Terraform
+              TERRAFORM_VERSION="1.9.2"
+              curl -fsSL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip -o terraform.zip
+              unzip -o terraform.zip
+              mv terraform /usr/local/bin/
+              chmod +x /usr/local/bin/terraform             
 
               echo "=== Installing Jenkins ==="
               curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | tee \
